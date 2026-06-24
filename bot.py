@@ -369,8 +369,11 @@ async def slot(update, context):
     )
     async def transfer(update: Update, context: ContextTypes.DEFAULT_TYPE):
     sender_id = update.effective_user.id
-    return
-    
+
+    if len(context.args) < 2:
+        await update.message.reply_text("Usage: /transfer <user_id> <amount>")
+        return
+
     target_id = int(context.args[0])
     amount = int(context.args[1])
 
@@ -380,24 +383,16 @@ async def slot(update, context):
         await update.message.reply_text("Insufficient balance")
         return
 
+    if amount <= 0:
+        await update.message.reply_text("Invalid amount")
+        return
+
     update_balance(sender_id, -amount)
     update_balance(target_id, amount)
 
-    await update.message.reply_text("Transfer completed")
-
-    update_balance(target_id, amount)
-
-    await update.message.reply_text(f"+{amount:,} added to {target_id}")
-
-
-async def removemoney(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-
-    if not is_admin(user_id):
-        await update.message.reply_text("No permission")
-        return
-
-    target_id = int(context.args[0])
+    await update.message.reply_text(
+        f"Transfer completed\nTo: {target_id}\nAmount: {amount:,}"
+    )
     amount = int(context.args[1])
 
     update_balance(target_id, -amount)
