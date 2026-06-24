@@ -383,21 +383,12 @@ async def slot(update, context):
         await update.message.reply_text("Insufficient balance")
         return
 
-    if amount <= 0:
-        await update.message.reply_text("Invalid amount")
-        return
-
     update_balance(sender_id, -amount)
     update_balance(target_id, amount)
 
     await update.message.reply_text(
         f"Transfer completed\nTo: {target_id}\nAmount: {amount:,}"
-    )
-    amount = int(context.args[1])
-
-    update_balance(target_id, -amount)
-
-    await update.message.reply_text(f"-{amount:,} removed from {target_id}")
+    
 
 
 def log_action(user_id, action, amount, balance_after):
