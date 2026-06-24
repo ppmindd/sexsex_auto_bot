@@ -4,33 +4,33 @@ import random
 from datetime import date
 
 from telegram import Update
-from telegram.ext import (
-    Application,
-    CommandHandler,
-    ContextTypes,
-)
+from telegram.ext import Application, CommandHandler, ContextTypes
 
-DB_NAME = "casino.db"
+TOKEN = os.getenv("BOT_TOKEN")
 
-START_POINTS = 500000
-CHECKIN_REWARD = 50000
-BAILOUT_AMOUNT = 100000
+DB = "casino.db"
+
+START_BALANCE = 500000
+DAILY_REWARD = 50000
+RELIEF_AMOUNT = 100000
 
 
-# --------------------
-# DB
-# --------------------
-def init_db():
-    conn = sqlite3.connect(DB_NAME)
+# ---------------- DB ----------------
+def db():
+    return sqlite3.connect(DB)
+
+
+def init():
+    conn = db()
     cur = conn.cursor()
 
     cur.execute("""
     CREATE TABLE IF NOT EXISTS users (
         user_id INTEGER PRIMARY KEY,
         username TEXT,
-        points INTEGER,
+        balance INTEGER DEFAULT 0,
         last_checkin TEXT,
-        last_bailout TEXT
+        last_relief TEXT
     )
     """)
 
@@ -38,371 +38,212 @@ def init_db():
     conn.close()
 
 
-def get_user(user_id):
-    conn = sqlite3.connect(DB_NAME)
+def get_user(uid):
+    conn = db()
     cur = conn.cursor()
-
-    cur.execute(
-        "SELECT user_id, username, points, last_checkin, last_bailout FROM users WHERE user_id=?",
-        (user_id,)
-    )
-    user = cur.fetchone()
-
+    cur.execute("SELECT * FROM users WHERE user_id=?", (uid,))
+    row = cur.fetchone()
     conn.close()
-    return user
+    return row
 
 
-def create_user(user_id, username):
-    conn = sqlite3.connect(DB_NAME)
+def create_user(uid, username):
+    conn = db()
     cur = conn.cursor()
-
     cur.execute(
-        """
-        INSERT OR IGNORE INTO users
-        (user_id, username, points, last_checkin, last_bailout)
-        VALUES (?, ?, ?, ?, ?)
-        """,
-        (
-            user_id,
-            username,
-            START_POINTS,
-            "",
-            ""
-        )
+        "INSERT OR IGNORE INTO users (user_id, username, balance) VALUES (?, ?, ?)",
+        (uid, username, START_BALANCE)
     )
-
     conn.commit()
     conn.close()
 
 
-def update_points(user_id, points):
-    conn = sqlite3.connect(DB_NAME)
+def update_balance(uid, amount):
+    conn = db()
     cur = conn.cursor()
-
-    cur.execute(
-        "UPDATE users SET points=? WHERE user_id=?",
-        (points, user_id)
-    )
-
+    cur.execute("UPDATE users SET balance = balance + ? WHERE user_id=?", (amount, uid))
     conn.commit()
     conn.close()
 
 
-def update_checkin(user_id, day):
-    conn = sqlite3.connect(DB_NAME)
+def update_checkin(uid):
+    conn = db()
     cur = conn.cursor()
-
-    cur.execute(
-        "UPDATE users SET last_checkin=? WHERE user_id=?",
-        (day, user_id)
-    )
-
+    cur.execute("UPDATE users SET last_checkin=? WHERE user_id=?", (str(date.today()), uid))
     conn.commit()
     conn.close()
 
 
-def update_bailout(user_id, day):
-    conn = sqlite3.connect(DB_NAME)
+def update_relief(uid):
+    conn = db()
     cur = conn.cursor()
-
-    cur.execute(
-        "UPDATE users SET last_bailout=? WHERE user_id=?",
-        (day, user_id)
-    )
-
+    cur.execute("UPDATE users SET last_relief=? WHERE user_id=?", (str(date.today()), uid))
     conn.commit()
     conn.close()
 
 
-def update_username(user_id, username):
-    conn = sqlite3.connect(DB_NAME)
-    cur = conn.cursor()
-
-    cur.execute(
-        "UPDATE users SET username=? WHERE user_id=?",
-        (username, user_id)
-    )
-
-    conn.commit()
-    conn.close()
+# ---------------- HELPERS ----------------
+def ensure(uid, username):
+    if not get_user(uid):
+        create_user(uid, username)
 
 
-def get_user_by_username(username):
-    conn = sqlite3.connect(DB_NAME)
-    cur = conn.cursor()
-
-    cur.execute(
-        "SELECT user_id, username, points, last_checkin, last_bailout FROM users WHERE username=?",
-        (username,)
-    )
-
-    user = cur.fetchone()
-
-    conn.close()
-    return user
+def balance(uid):
+    row = get_user(uid)
+    return row[2] if row else 0
 
 
-# --------------------
-# Helpers
-# --------------------
-def ensure_user(update: Update):
-    tg_user = update.effective_user
-
-    user = get_user(tg_user.id)
-
-    if not user:
-        create_user(
-            tg_user.id,
-            tg_user.username or ""
-        )
-    else:
-        update_username(
-            tg_user.id,
-            tg_user.username or ""
-        )
-
-
-# --------------------
-# Commands
-# --------------------
+# ---------------- COMMANDS ----------------
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    ensure_user(update)
+    u = update.effective_user
+    ensure(u.id, u.username)
 
     await update.message.reply_text(
-        f"🎰 마닐라 카지노\n\n"
-        f"초기 지급금: {START_POINTS:,} 칩\n\n"
-        f"명령어:\n"
-        f"/출석\n"
-        f"/잔액\n"
-        f"/주사위 금액\n"
-        f"/홀짝 금액 홀|짝\n"
-        f"/송금 @유저 금액\n"
-        f"/구제"
+        f"🎰 Casino Bot\n"
+        f"Welcome!\n"
+        f"+{START_BALANCE:,} coins added"
     )
 
 
-async def balance(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    ensure_user(update)
+async def bal(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    u = update.effective_user
+    ensure(u.id, u.username)
 
-    user = get_user(update.effective_user.id)
-
-    await update.message.reply_text(
-        f"💰 현재 잔액: {user[2]:,} 칩"
-    )
+    await update.message.reply_text(f"💰 Balance: {balance(u.id):,}")
 
 
 async def checkin(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    ensure_user(update)
+    u = update.effective_user
+    ensure(u.id, u.username)
 
+    row = get_user(u.id)
     today = str(date.today())
 
-    user = get_user(update.effective_user.id)
-
-    if user[3] == today:
-        await update.message.reply_text(
-            "❌ 오늘은 이미 출석했습니다."
-        )
+    if row[3] == today:
+        await update.message.reply_text("Already checked in today.")
         return
 
-    new_points = user[2] + CHECKIN_REWARD
+    update_balance(u.id, DAILY_REWARD)
+    update_checkin(u.id)
 
-    update_points(user[0], new_points)
-    update_checkin(user[0], today)
-
-    await update.message.reply_text(
-        f"✅ 출석 완료!\n+{CHECKIN_REWARD:,} 칩\n\n"
-        f"현재 잔액: {new_points:,}"
-    )
+    await update.message.reply_text(f"Check-in done!\n+{DAILY_REWARD:,}")
 
 
-async def bailout(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    ensure_user(update)
+async def relief(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    u = update.effective_user
+    ensure(u.id, u.username)
 
+    row = get_user(u.id)
     today = str(date.today())
-    user = get_user(update.effective_user.id)
 
-    if user[2] > 0:
-        await update.message.reply_text(
-            "❌ 잔액이 0일 때만 구제 가능합니다."
-        )
+    if row[4] == today:
+        await update.message.reply_text("Already used relief today.")
         return
 
-    if user[4] == today:
-        await update.message.reply_text(
-            "❌ 오늘은 이미 구제를 받았습니다."
-        )
+    if balance(u.id) > 0:
+        await update.message.reply_text("Only for zero balance users.")
         return
 
-    update_points(user[0], BAILOUT_AMOUNT)
-    update_bailout(user[0], today)
+    update_balance(u.id, RELIEF_AMOUNT)
+    update_relief(u.id)
 
-    await update.message.reply_text(
-        f"🆘 구제금 지급!\n"
-        f"+{BAILOUT_AMOUNT:,} 칩"
-    )
+    await update.message.reply_text(f"Relief granted!\n+{RELIEF_AMOUNT:,}")
 
 
 async def dice(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    ensure_user(update)
+    u = update.effective_user
+    ensure(u.id, u.username)
 
     if len(context.args) != 1:
-        await update.message.reply_text(
-            "사용법: /주사위 금액"
-        )
+        await update.message.reply_text("Usage: /dice 50000")
         return
 
-    try:
-        bet = int(context.args[0])
-    except:
-        await update.message.reply_text("금액 오류")
-        return
+    bet = int(context.args[0])
 
-    user = get_user(update.effective_user.id)
-
-    if bet <= 0:
-        await update.message.reply_text("금액 오류")
-        return
-
-    if user[2] < bet:
-        await update.message.reply_text("잔액 부족")
+    if balance(u.id) < bet:
+        await update.message.reply_text("Not enough balance.")
         return
 
     roll = random.randint(1, 6)
 
-    points = user[2]
-
     if roll >= 4:
-        points += bet
-        result = f"🎲 {roll}\n승리!\n+{bet:,}"
+        update_balance(u.id, bet)
+        await update.message.reply_text(f"🎲 {roll}\nWIN +{bet:,}")
     else:
-        points -= bet
-        result = f"🎲 {roll}\n패배!\n-{bet:,}"
-
-    update_points(user[0], points)
-
-    await update.message.reply_text(
-        f"{result}\n\n잔액: {points:,}"
-    )
+        update_balance(u.id, -bet)
+        await update.message.reply_text(f"🎲 {roll}\nLOSE -{bet:,}")
 
 
-async def odd_even(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    ensure_user(update)
+async def coin(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    u = update.effective_user
+    ensure(u.id, u.username)
 
     if len(context.args) != 2:
-        await update.message.reply_text(
-            "사용법: /홀짝 금액 홀"
-        )
+        await update.message.reply_text("Usage: /coin 50000 head|tail")
         return
 
-    try:
-        bet = int(context.args[0])
-    except:
-        await update.message.reply_text("금액 오류")
+    bet = int(context.args[0])
+    choice = context.args[1].lower()
+
+    if choice not in ["head", "tail"]:
+        await update.message.reply_text("Choose head or tail")
         return
 
-    choice = context.args[1]
-
-    if choice not in ["홀", "짝"]:
-        await update.message.reply_text(
-            "홀 또는 짝 입력"
-        )
+    if balance(u.id) < bet:
+        await update.message.reply_text("Not enough balance.")
         return
 
-    user = get_user(update.effective_user.id)
+    result = random.choice(["head", "tail"])
 
-    if user[2] < bet:
-        await update.message.reply_text("잔액 부족")
-        return
-
-    num = random.randint(1, 10)
-
-    result_side = "홀" if num % 2 else "짝"
-
-    points = user[2]
-
-    if choice == result_side:
-        points += bet
-        msg = f"🎯 결과: {num} ({result_side})\n승리!\n+{bet:,}"
+    if result == choice:
+        update_balance(u.id, bet)
+        await update.message.reply_text(f"Result: {result}\nWIN +{bet:,}")
     else:
-        points -= bet
-        msg = f"🎯 결과: {num} ({result_side})\n패배!\n-{bet:,}"
-
-    update_points(user[0], points)
-
-    await update.message.reply_text(
-        f"{msg}\n\n잔액: {points:,}"
-    )
+        update_balance(u.id, -bet)
+        await update.message.reply_text(f"Result: {result}\nLOSE -{bet:,}")
 
 
-async def transfer(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    ensure_user(update)
+async def send(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    u = update.effective_user
+    ensure(u.id, u.username)
 
-    if len(context.args) != 2:
-        await update.message.reply_text(
-            "사용법: /송금 @유저 금액"
-        )
+    if not update.message.reply_to_message:
+        await update.message.reply_text("Reply to a user message to send coins.")
         return
 
-    username = context.args[0].replace("@", "")
-
-    try:
-        amount = int(context.args[1])
-    except:
-        await update.message.reply_text("금액 오류")
+    if len(context.args) != 1:
+        await update.message.reply_text("Usage: reply + /send 50000")
         return
 
-    sender = get_user(update.effective_user.id)
+    amount = int(context.args[0])
+    target = update.message.reply_to_message.from_user
 
-    target = get_user_by_username(username)
+    ensure(target.id, target.username)
 
-    if not target:
-        await update.message.reply_text(
-            "대상 유저가 없습니다.\n대상이 먼저 /start 해야 합니다."
-        )
+    if balance(u.id) < amount:
+        await update.message.reply_text("Not enough balance.")
         return
 
-    if amount <= 0:
-        await update.message.reply_text("금액 오류")
-        return
+    update_balance(u.id, -amount)
+    update_balance(target.id, amount)
 
-    if sender[2] < amount:
-        await update.message.reply_text("잔액 부족")
-        return
-
-    update_points(
-        sender[0],
-        sender[2] - amount
-    )
-
-    update_points(
-        target[0],
-        target[2] + amount
-    )
-
-    await update.message.reply_text(
-        f"✅ @{username} 에게 {amount:,} 칩 송금 완료"
-    )
+    await update.message.reply_text(f"Sent {amount:,} coins")
 
 
+# ---------------- MAIN ----------------
 def main():
-    init_db()
+    init()
 
-    token = os.getenv("BOT_TOKEN")
-
-    if not token:
-        raise ValueError("BOT_TOKEN not found")
-
-    app = Application.builder().token(token).build()
+    app = Application.builder().token(TOKEN).build()
 
     app.add_handler(CommandHandler("start", start))
-app.add_handler(CommandHandler("checkin", checkin))
-app.add_handler(CommandHandler("balance", balance))
-app.add_handler(CommandHandler("dice", dice))
-app.add_handler(CommandHandler("oddeven", odd_even))
-app.add_handler(CommandHandler("pay", transfer))
-app.add_handler(CommandHandler("bailout", bailout))
+    app.add_handler(CommandHandler("balance", bal))
+    app.add_handler(CommandHandler("checkin", checkin))
+    app.add_handler(CommandHandler("relief", relief))
+    app.add_handler(CommandHandler("dice", dice))
+    app.add_handler(CommandHandler("coin", coin))
+    app.add_handler(CommandHandler("send", send))
 
-    print("Bot started...")
     app.run_polling()
 
 
