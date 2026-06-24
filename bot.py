@@ -129,25 +129,20 @@ async def checkin(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(f"Check-in done!\n+{DAILY_REWARD:,}")
 
 
-async def relief(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    u = update.effective_user
-    ensure(u.id, u.username)
+async def relief(update, context):
+    user_id = update.effective_user.id
+    user = get_user(user_id)
+    balance = user[1]
 
-    row = get_user(u.id)
-    today = str(date.today())
-
-    if row[4] == today:
-        await update.message.reply_text("Already used relief today.")
+    if balance > 0:
+        await update.message.reply_text("❌ Relief is only available when your balance is 0.")
         return
 
-    if balance(u.id) > 0:
-        await update.message.reply_text("Only for zero balance users.")
-        return
+    amount = 500_000
 
-    update_balance(u.id, RELIEF_AMOUNT)
-    update_relief(u.id)
+    update_balance(user_id, amount)
 
-    await update.message.reply_text(f"Relief granted!\n+{RELIEF_AMOUNT:,}")
+    await update.message.reply_text(f"🆘 Relief activated! +{amount:,}")
 
 
 async def dice(update: Update, context: ContextTypes.DEFAULT_TYPE):
