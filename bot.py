@@ -2,6 +2,7 @@ import os
 import sqlite3
 import random
 import logging
+import asyncio
 from datetime import datetime, date
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
@@ -9,7 +10,7 @@ from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandle
 
 # ======================
 BOT_TOKEN = os.getenv("BOT_TOKEN")
-ADMIN_IDS = {7381851504}  # 👈 반드시 수정
+ADMIN_IDS = {7381851504}
 
 logging.basicConfig(level=logging.INFO)
 
@@ -43,46 +44,43 @@ conn.commit()
 # ======================
 # DB CORE
 # ======================
-def get_user(user_id):
-    cur.execute("SELECT * FROM users WHERE user_id=?", (user_id,))
-    row = cur.fetchone()
+def get_user(uid):
+    cur.execute("SELECT * FROM users WHERE user_id=?", (uid,))
+    u = cur.fetchone()
 
-    if not row:
+    if not u:
         cur.execute(
             "INSERT INTO users (user_id, balance) VALUES (?, ?)",
-            (user_id, 1000000)  # 초기 자본
+            (uid, 1000000)
         )
         conn.commit()
-        return (user_id, 1000000, None)
+        return (uid, 1000000, None)
 
-    return row
+    return u
 
 
-def log(user_id, action, amount, balance):
+def log(uid, action, amount, balance):
     cur.execute(
-        "INSERT INTO logs (user_id, action, amount, balance, timestamp) VALUES (?, ?, ?, ?, ?)",
-        (user_id, action, amount, balance, datetime.now().isoformat())
+        "INSERT INTO logs VALUES (NULL,?,?,?,?,?)",
+        (uid, action, amount, balance, datetime.now().isoformat())
     )
     conn.commit()
 
 
-def update_balance(user_id, amount):
-    u = get_user(user_id)
+def update_balance(uid, amount):
+    u = get_user(uid)
     new = u[1] + amount
 
     if new < 0:
         new = 0
 
-    cur.execute("UPDATE users SET balance=? WHERE user_id=?", (new, user_id))
+    cur.execute("UPDATE users SET balance=? WHERE user_id=?", (new, uid))
     conn.commit()
 
-    log(user_id, "BALANCE", amount, new)
+    log(uid, "BAL", amount, new)
     return new
 
 
-# ======================
-# CHECK ADMIN
-# ======================
 def is_admin(uid):
     return uid in ADMIN_IDS
 
@@ -99,7 +97,7 @@ def menu():
     ])
 
 
-def games():
+def games_menu():
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("🎲 Dice", callback_data="dice")],
         [InlineKeyboardButton("🪙 Coin", callback_data="coin")],
@@ -110,23 +108,20 @@ def games():
 
 
 # ======================
-# START
+# START / BALANCE
 # ======================
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def start(update, context):
     get_user(update.effective_user.id)
-    await update.message.reply_text("🎰 Casino Bot Ready", reply_markup=menu())
+    await update.message.reply_text("🎰 Casino Pro Ready", reply_markup=menu())
 
 
-# ======================
-# BALANCE
-# ======================
 async def balance(update, context):
     u = get_user(update.effective_user.id)
     await update.message.reply_text(f"💰 {u[1]}")
 
 
 # ======================
-# CHECKIN
+# CHECKIN / RELIEF
 # ======================
 async def checkin(update, context):
     uid = update.effective_user.id
@@ -137,7 +132,7 @@ async def checkin(update, context):
     if u[2] == today:
         return await update.message.reply_text("Already claimed")
 
-    reward = random.randint(500000, 2000000)
+    reward = random.randint(1000000, 3000000)
     new = update_balance(uid, reward)
 
     cur.execute("UPDATE users SET last_checkin=? WHERE user_id=?", (today, uid))
@@ -146,9 +141,6 @@ async def checkin(update, context):
     await update.message.reply_text(f"🎁 +{reward}\n💰 {new}")
 
 
-# ======================
-# RELIEF
-# ======================
 async def relief(update, context):
     uid = update.effective_user.id
     u = get_user(uid)
@@ -156,8 +148,8 @@ async def relief(update, context):
     if u[1] > 0:
         return await update.message.reply_text("Only for zero balance")
 
-    new = update_balance(uid, 1000000)
-    await update.message.reply_text(f"🆘 +1000000\n💰 {new}")
+    new = update_balance(uid, 500000)
+    await update.message.reply_text(f"🆘 +500000\n💰 {new}")
 
 
 # ======================
@@ -172,124 +164,120 @@ async def transfer(update, context):
         if amt <= 0:
             return await update.message.reply_text("Invalid")
 
-        u = get_user(uid)
-
-        if u[1] < amt:
+        if get_user(uid)[1] < amt:
             return await update.message.reply_text("No balance")
 
         update_balance(uid, -amt)
         update_balance(target, amt)
 
-        await update.message.reply_text("Sent")
+        await update.message.reply_text("Transferred")
 
     except:
         await update.message.reply_text("/transfer <id> <amount>")
 
 
 # ======================
-# ADMIN PANEL
+# ADMIN
 # ======================
 async def admin(update, context):
     if not is_admin(update.effective_user.id):
         return await update.message.reply_text("No permission")
 
-    await update.message.reply_text(
-        "ADMIN",
-        reply_markup=InlineKeyboardMarkup([
-            [InlineKeyboardButton("Logs", callback_data="logs")],
-            [InlineKeyboardButton("Rank", callback_data="rank")],
-        ])
-    )
+    await update.message.reply_text("🛠 Admin Ready")
 
 
-async def logs(update, context):
+async def addmoney(update, context):
     if not is_admin(update.effective_user.id):
         return
 
-    cur.execute("SELECT * FROM logs ORDER BY id DESC LIMIT 10")
-    rows = cur.fetchall()
+    uid = int(context.args[0])
+    amt = int(context.args[1])
 
-    await update.message.reply_text("\n".join(map(str, rows)))
+    new = update_balance(uid, amt)
+    await update.message.reply_text(f"➕ +{amt}\n💰 {new}")
 
 
-async def rank(update, context):
+async def removemoney(update, context):
     if not is_admin(update.effective_user.id):
         return
 
-    cur.execute("SELECT user_id, balance FROM users ORDER BY balance DESC LIMIT 10")
-    rows = cur.fetchall()
+    uid = int(context.args[0])
+    amt = int(context.args[1])
 
-    await update.message.reply_text("\n".join([f"{a}:{b}" for a, b in rows]))
-    
-    
+    new = update_balance(uid, -amt)
+    await update.message.reply_text(f"➖ -{amt}\n💰 {new}")
+
+
 # ======================
-# GAMES CORE
+# GAMES
 # ======================
 def check(uid, bet):
     return get_user(uid)[1] >= bet
 
 
 async def dice_game(update, uid, bet):
-    if not check(uid, bet):
-        return await update.message.reply_text("No balance")
-
     msg = await update.message.reply_dice()
     v = msg.dice.value
 
     if v >= 4:
-        win = bet * 2
-        new = update_balance(uid, win)
-        await update.message.reply_text(f"WIN +{win}\n💰{new}")
+        new = update_balance(uid, bet * 2)
+        await update.message.reply_text(f"🎲 WIN +{bet*2}\n💰 {new}")
     else:
         new = update_balance(uid, -bet)
-        await update.message.reply_text(f"LOSE -{bet}\n💰{new}")
+        await update.message.reply_text(f"🎲 LOSE -{bet}\n💰 {new}")
 
 
 async def coin_game(update, uid, bet):
-    if not check(uid, bet):
-        return await update.message.reply_text("No balance")
+    msg = await update.message.reply_dice("🪙")
 
-    a = random.choice(["H", "T"])
-    b = random.choice(["H", "T"])
-
-    if a == b:
+    if msg.dice.value % 2 == 0:
         new = update_balance(uid, bet * 2)
-        await update.message.reply_text(f"WIN 💰{new}")
+        await update.message.reply_text(f"🪙 WIN +{bet*2}")
     else:
         new = update_balance(uid, -bet)
-        await update.message.reply_text(f"LOSE 💰{new}")
+        await update.message.reply_text(f"🪙 LOSE -{bet}")
 
 
 async def slots_game(update, uid, bet):
-    if not check(uid, bet):
-        return await update.message.reply_text("No balance")
+    msg = await update.message.reply_dice("🎰")
 
-    msg = await update.message.reply_dice(emoji="🎰")
-    v = msg.dice.value
-
-    if v in [1, 22, 43]:
+    if msg.dice.value in [1, 22, 43]:
         new = update_balance(uid, bet * 5)
-        await update.message.reply_text(f"JACKPOT 💰{new}")
+        await update.message.reply_text(f"🎰 JACKPOT +{bet*5}")
     else:
         new = update_balance(uid, -bet)
-        await update.message.reply_text(f"LOSE 💰{new}")
+        await update.message.reply_text(f"🎰 LOSE -{bet}")
 
 
+# ======================
+# 🃏 BACCARAT (ANIMATION VERSION)
+# ======================
 async def baccarat_game(update, uid, bet):
-    if not check(uid, bet):
-        return await update.message.reply_text("No balance")
+    msg = await update.message.reply_text("🃏 Dealing cards...")
+
+    await asyncio.sleep(1)
+    await msg.edit_text("🃏 Player: ♦️🂠 | Banker: ♠️🂠")
+
+    await asyncio.sleep(1)
 
     p = random.randint(1, 9)
     b = random.randint(1, 9)
 
+    text = f"🃏 Player: {p} | Banker: {b}\n"
+
     if p > b:
         new = update_balance(uid, bet)
+        text += f"🎉 Player Win +{bet}"
     elif b > p:
         new = update_balance(uid, -bet)
+        text += f"💥 Banker Win -{bet}"
     else:
         new = get_user(uid)[1]
+        text += "🤝 Tie"
 
-    await update.message.reply_text(f"P:{p} B:{b}\n💰{new}")
+    text += f"\n💰 {new}"
+
+    await msg.edit_text(text)
 
 
 # ======================
@@ -306,7 +294,7 @@ async def button(update, context):
         await q.edit_message_text("Menu", reply_markup=menu())
 
     elif d == "games":
-        await q.edit_message_text("Games", reply_markup=games())
+        await q.edit_message_text("Games", reply_markup=games_menu())
 
     elif d == "balance":
         u = get_user(uid)
@@ -355,8 +343,8 @@ def main():
     app.add_handler(CommandHandler("transfer", transfer))
 
     app.add_handler(CommandHandler("admin", admin))
-    app.add_handler(CommandHandler("logs", logs))
-    app.add_handler(CommandHandler("rank", rank))
+    app.add_handler(CommandHandler("addmoney", addmoney))
+    app.add_handler(CommandHandler("removemoney", removemoney))
 
     app.add_handler(CommandHandler("dice", dice))
     app.add_handler(CommandHandler("coin", coin))
@@ -364,9 +352,8 @@ def main():
     app.add_handler(CommandHandler("baccarat", baccarat))
 
     app.add_handler(CallbackQueryHandler(button))
-    
-    
-    print("RUNNING")
+
+    print("🔥 Casino Pro Running...")
     app.run_polling()
 
 
