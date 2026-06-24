@@ -290,13 +290,14 @@ async def baccarat(update, context):
     update_balance(user_id, change)
 
     await update.message.reply_text(
-        f"🃏 BACCARAT\n\n"
-        f"You: {choice}\n\n"
-        f"Player: {p_cards} → {p_score}\n"
-        f"Banker: {b_cards} → {b_score}\n\n"
-        f"Result: {result}\n"
-        f"{msg}"
-    )
+    f"🃏 BACCARAT\n\n"
+    f"You: {choice}\n\n"
+    f"Player: {p_cards} → {p_score}\n"
+    f"Banker: {b_cards} → {b_score}\n\n"
+    f"Result: {result}\n"
+    f"{msg}\n"
+    f"Change: {change:+}"
+)
 
 
 # ---------------- MAIN ----------------
