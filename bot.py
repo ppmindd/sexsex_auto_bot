@@ -251,22 +251,31 @@ async def baccarat(update, context):
 
     choice = context.args[1].lower()
 
-    balance = get_user(user_id)[2]
+    user = get_user(user_id)
+    if not user:
+        await update.message.reply_text("User not registered. Use /start")
+        return
 
-    if bet <= 0 or bet > balance:
-        await update.message.reply_text("Invalid bet amount")
+    balance = user[2]
+
+    if bet <= 0:
+        await update.message.reply_text("Bet must be > 0")
+        return
+
+    if bet > balance:
+        await update.message.reply_text("Not enough balance")
         return
 
     if choice not in ["player", "banker", "tie"]:
         await update.message.reply_text("Choose: player / banker / tie")
         return
 
-    player_score, player_cards = baccarat_score()
-    banker_score, banker_cards = baccarat_score()
+    p_score, p_cards = baccarat_score()
+    b_score, b_cards = baccarat_score()
 
-    if player_score > banker_score:
+    if p_score > b_score:
         result = "player"
-    elif banker_score > player_score:
+    elif b_score > p_score:
         result = "banker"
     else:
         result = "tie"
@@ -283,8 +292,8 @@ async def baccarat(update, context):
     await update.message.reply_text(
         f"🃏 BACCARAT\n\n"
         f"You: {choice}\n\n"
-        f"Player: {player_cards} → {player_score}\n"
-        f"Banker: {banker_cards} → {banker_score}\n\n"
+        f"Player: {p_cards} → {p_score}\n"
+        f"Banker: {b_cards} → {b_score}\n\n"
         f"Result: {result}\n"
         f"{msg}"
     )
