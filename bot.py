@@ -220,7 +220,21 @@ async def rank(update, context):
     rows = cur.fetchall()
 
     await update.message.reply_text("\n".join([f"{a}:{b}" for a, b in rows]))
+    
+    
+async def addmoney(update, context):
+    if not is_admin(update.effective_user.id):
+        return await update.message.reply_text("No permission")
 
+    try:
+        uid = int(context.args[0])
+        amt = int(context.args[1])
+
+        new = update_balance(uid, amt)
+        await update.message.reply_text(f"➕ +{amt}\n💰 {new}")
+
+    except:
+        await update.message.reply_text("/addmoney <id> <amount>")
 
 # ======================
 # GAMES CORE
@@ -364,6 +378,9 @@ def main():
     app.add_handler(CommandHandler("baccarat", baccarat))
 
     app.add_handler(CallbackQueryHandler(button))
+    
+    app.add_handler(CommandHandler("addmoney", addmoney))
+    app.add_handler(CommandHandler("removemoney", removemoney))
 
     print("RUNNING")
     app.run_polling()
