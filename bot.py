@@ -353,6 +353,165 @@ async def slot(update, context):
         f"{result}\n"
         f"Change: {change:+}"
     )
+    import sqlite3
+from datetime import datetime
+from telegram import Update
+from telegram.ext import CommandHandler, ContextTypes
+
+ADMIN_IDS = [123456789]
+
+def is_admin(user_id: int) -> bool:
+    return user_id in ADMIN_IDS
+
+
+async def transfer(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    sender_id = update.effective_user.id
+
+    if len(context.args) < 2:
+        await update.message.reply_text("Usage: /transfer <user_id> <amount>")
+        return
+
+    try:
+        target_id = int(context.args[0])
+        amount = int(context.args[1])
+    except:
+        await update.message.reply_text("Invalid input")
+        return
+
+    if amount <= 0:
+        await update.message.reply_text("Amount must be greater than 0")
+        return
+
+    if sender_id == target_id:
+        await update.message.reply_text("You cannot transfer to yourself")
+        return
+
+    sender = get_user(sender_id)
+
+    if sender[1] < amount:
+        await update.message.reply_text("Insufficient balance")
+        return
+
+    update_balance(sender_id, -amount)
+    update_balance(target_id, amount)
+
+    await update.message.reply_text(
+        f"Transfer successful\nTo: {target_id}\nAmount: {amount:,}"
+    )
+
+
+async def admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+
+    if not is_admin(user_id):
+        await update.message.reply_text("No permission")
+        return
+
+    await update.message.reply_text(
+        "/addmoney <user_id> <amount>\n"
+        "/removemoney <user_id> <amount>\n"
+        "/logs\n"
+        "/rank"
+    )
+
+
+async def addmoney(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+
+    if not is_admin(user_id):
+        await update.message.reply_text("No permission")
+        return
+
+    target_id = int(context.args[0])
+    amount = int(context.args[1])
+
+    update_balance(target_id, amount)
+
+    await update.message.reply_text(f"+{amount:,} added to {target_id}")
+
+
+async def removemoney(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+
+    if not is_admin(user_id):
+        await update.message.reply_text("No permission")
+        return
+
+    target_id = int(context.args[0])
+    amount = int(context.args[1])
+
+    update_balance(target_id, -amount)
+
+    await update.message.reply_text(f"-{amount:,} removed from {target_id}")
+
+
+def log_action(user_id, action, amount, balance_after):
+    conn = sqlite3.connect("casino.db")
+    cur = conn.cursor()
+
+    cur.execute(
+        "INSERT INTO logs (user_id, action, amount, balance_after, time) VALUES (?, ?, ?, ?, ?)",
+        (
+            user_id,
+            action,
+            amount,
+            balance_after,
+            datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        )
+    )
+
+    conn.commit()
+    conn.close()
+
+
+async def logs(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+
+    if not is_admin(user_id):
+        await update.message.reply_text("No permission")
+        return
+
+    conn = sqlite3.connect("casino.db")
+    cur = conn.cursor()
+
+    cur.execute("SELECT * FROM logs ORDER BY id DESC LIMIT 10")
+    rows = cur.fetchall()
+    conn.close()
+
+    text = "RECENT LOGS\n\n"
+
+    for r in rows:
+        text += f"{r[5]} UID:{r[1]} {r[2]} {r[3]} bal:{r[4]}\n"
+
+    await update.message.reply_text(text)
+
+
+async def rank(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    conn = sqlite3.connect("casino.db")
+    cur = conn.cursor()
+
+    cur.execute(
+        "SELECT user_id, balance FROM users ORDER BY balance DESC LIMIT 10"
+    )
+
+    rows = cur.fetchall()
+    conn.close()
+
+    text = "TOP RANKING\n\n"
+
+    for i, r in enumerate(rows, start=1):
+        text += f"{i}. {r[0]} — {r[1]:,}\n"
+
+    await update.message.reply_text(text)
+
+
+def register_handlers(app):
+    app.add_handler(CommandHandler("transfer", transfer))
+    app.add_handler(CommandHandler("admin", admin))
+    app.add_handler(CommandHandler("addmoney", addmoney))
+    app.add_handler(CommandHandler("removemoney", removemoney))
+    app.add_handler(CommandHandler("logs", logs))
+    app.add_handler(CommandHandler("rank", rank))
 
 # ---------------- MAIN ----------------
 def main():
