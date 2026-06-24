@@ -395,12 +395,12 @@ def main():
     app = Application.builder().token(token).build()
 
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("출석", checkin))
-    app.add_handler(CommandHandler("잔액", balance))
-    app.add_handler(CommandHandler("주사위", dice))
-    app.add_handler(CommandHandler("홀짝", odd_even))
-    app.add_handler(CommandHandler("송금", transfer))
-    app.add_handler(CommandHandler("구제", bailout))
+app.add_handler(CommandHandler("checkin", checkin))
+app.add_handler(CommandHandler("balance", balance))
+app.add_handler(CommandHandler("dice", dice))
+app.add_handler(CommandHandler("oddeven", odd_even))
+app.add_handler(CommandHandler("pay", transfer))
+app.add_handler(CommandHandler("bailout", bailout))
 
     print("Bot started...")
     app.run_polling()
