@@ -20,7 +20,7 @@ from telegram.ext import (
 # CONFIG
 # ======================
 BOT_TOKEN = os.getenv("BOT_TOKEN")
-ADMIN_IDS = {123456789}  # 본인 Telegram ID로 변경
+ADMIN_IDS = {7381851504}  # 본인 Telegram ID로 변경
 
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -64,7 +64,7 @@ def get_user(user_id):
     if not row:
         cur.execute("INSERT INTO users (user_id, balance) VALUES (?, ?)", (user_id, 1000))
         conn.commit()
-        return (user_id, 1000, None)
+        return (user_id, 1000000, None)
     return row
 
 
@@ -359,7 +359,7 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if user[2] == today:
             return await q.edit_message_text("Already claimed")
 
-        reward = random.randint(100, 500)
+        reward = random.randint(500000, 2000000)
         new = update_balance(user_id, reward)
 
         cur.execute("UPDATE users SET last_checkin=? WHERE user_id=?", (today, user_id))
