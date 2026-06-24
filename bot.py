@@ -309,7 +309,7 @@ def main():
     app.add_handler(CommandHandler("dice", dice))
     app.add_handler(CommandHandler("coin", coin))
     app.add_handler(CommandHandler("send", send))
-    dp.add_handler(CommandHandler("baccarat", baccarat))
+    app.add_handler(CommandHandler("baccarat", baccarat))
 
     app.run_polling()
     
