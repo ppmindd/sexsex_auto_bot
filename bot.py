@@ -229,6 +229,72 @@ async def send(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.reply_text(f"Sent {amount:,} coins")
 
+import random
+
+def baccarat_score():
+    cards = [random.randint(1, 10) for _ in range(3)]
+    total = sum(cards)
+    score = total % 10
+    return score, cards
+
+
+def baccarat(update, context):
+    user = update.effective_user
+    user_id = user.id
+
+    if len(context.args) < 2:
+        update.message.reply_text("Usage: /baccarat <bet> player|banker|tie")
+        return
+
+    try:
+        bet = int(context.args[0])
+    except:
+        update.message.reply_text("Bet must be a number")
+        return
+
+    choice = context.args[1].lower()
+
+    balance = get_user(user_id)[2]
+
+    if bet <= 0 or bet > balance:
+        update.message.reply_text("Invalid bet amount")
+        return
+
+    if choice not in ["player", "banker", "tie"]:
+        update.message.reply_text("Choose: player / banker / tie")
+        return
+
+    player_score, player_cards = baccarat_score()
+    banker_score, banker_cards = baccarat_score()
+
+    if player_score > banker_score:
+        result = "player"
+    elif banker_score > player_score:
+        result = "banker"
+    else:
+        result = "tie"
+
+    if choice == result:
+        if result == "tie":
+            change = bet * 8
+        else:
+            change = bet
+        msg = "YOU WIN"
+    else:
+        change = -bet
+        msg = "YOU LOSE"
+
+    update_balance(user_id, change)
+
+    update.message.reply_text(
+        f"🃏 BACCARAT\n\n"
+        f"You: {choice}\n\n"
+        f"Player: {player_cards} → {player_score}\n"
+        f"Banker: {banker_cards} → {banker_score}\n\n"
+        f"Result: {result}\n"
+        f"{msg}"
+    )
+
 
 # ---------------- MAIN ----------------
 def main():
@@ -245,6 +311,8 @@ def main():
     app.add_handler(CommandHandler("send", send))
 
     app.run_polling()
+    
+    dp.add_handler(CommandHandler("baccarat", baccarat))
 
 
 if __name__ == "__main__":
