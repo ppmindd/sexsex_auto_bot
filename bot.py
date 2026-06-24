@@ -2,35 +2,43 @@ import os
 import sqlite3
 import random
 from datetime import date
-
 from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes
 
+ADMIN_IDS = [7381851504]
+
+def is_admin(user_id):
+    return user_id in ADMIN_IDS
+    
 TOKEN = os.getenv("BOT_TOKEN")
 
 DB = "casino.db"
 
-START_BALANCE = 500000
-DAILY_REWARD = 50000
-RELIEF_AMOUNT = 100000
+START_BALANCE = 1000000
+DAILY_REWARD = 500000
+RELIEF_AMOUNT = 1000000
 
 
 # ---------------- DB ----------------
-def db():
-    return sqlite3.connect(DB)
-
-
-def init():
-    conn = db()
+def init_db():
+    conn = sqlite3.connect("casino.db")
     cur = conn.cursor()
 
     cur.execute("""
     CREATE TABLE IF NOT EXISTS users (
         user_id INTEGER PRIMARY KEY,
-        username TEXT,
-        balance INTEGER DEFAULT 0,
-        last_checkin TEXT,
-        last_relief TEXT
+        balance INTEGER DEFAULT 0
+    )
+    """)
+
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS logs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER,
+        action TEXT,
+        amount INTEGER,
+        balance_after INTEGER,
+        time TEXT
     )
     """)
 
@@ -38,30 +46,36 @@ def init():
     conn.close()
 
 
-def get_user(uid):
-    conn = db()
+def get_user(user_id):
+    conn = sqlite3.connect("casino.db")
     cur = conn.cursor()
-    cur.execute("SELECT * FROM users WHERE user_id=?", (uid,))
+
+    cur.execute("SELECT user_id, balance FROM users WHERE user_id=?", (user_id,))
     row = cur.fetchone()
+
+    if row is None:
+        cur.execute("INSERT INTO users (user_id, balance) VALUES (?, ?)", (user_id, 500000))
+        conn.commit()
+        conn.close()
+        return (user_id, 1000000)
+
     conn.close()
     return row
 
 
-def create_user(uid, username):
-    conn = db()
+def update_balance(user_id, amount):
+    conn = sqlite3.connect("casino.db")
     cur = conn.cursor()
-    cur.execute(
-        "INSERT OR IGNORE INTO users (user_id, username, balance) VALUES (?, ?, ?)",
-        (uid, username, START_BALANCE)
-    )
-    conn.commit()
-    conn.close()
 
+    cur.execute("SELECT balance FROM users WHERE user_id=?", (user_id,))
+    row = cur.fetchone()
 
-def update_balance(uid, amount):
-    conn = db()
-    cur = conn.cursor()
-    cur.execute("UPDATE users SET balance = balance + ? WHERE user_id=?", (amount, uid))
+    if row is None:
+        cur.execute("INSERT INTO users (user_id, balance) VALUES (?, ?)", (user_id, amount))
+    else:
+        new_balance = row[0] + amount
+        cur.execute("UPDATE users SET balance=? WHERE user_id=?", (new_balance, user_id))
+
     conn.commit()
     conn.close()
 
@@ -353,38 +367,11 @@ async def slot(update, context):
         f"{result}\n"
         f"Change: {change:+}"
     )
-    import sqlite3
-from datetime import datetime
-from telegram import Update
-from telegram.ext import CommandHandler, ContextTypes
-
-ADMIN_IDS = [123456789]
-
-def is_admin(user_id: int) -> bool:
-    return user_id in ADMIN_IDS
-
-
-async def transfer(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def transfer(update: Update, context: ContextTypes.DEFAULT_TYPE):
     sender_id = update.effective_user.id
 
-    if len(context.args) < 2:
-        await update.message.reply_text("Usage: /transfer <user_id> <amount>")
-        return
-
-    try:
-        target_id = int(context.args[0])
-        amount = int(context.args[1])
-    except:
-        await update.message.reply_text("Invalid input")
-        return
-
-    if amount <= 0:
-        await update.message.reply_text("Amount must be greater than 0")
-        return
-
-    if sender_id == target_id:
-        await update.message.reply_text("You cannot transfer to yourself")
-        return
+    target_id = int(context.args[0])
+    amount = int(context.args[1])
 
     sender = get_user(sender_id)
 
@@ -395,35 +382,7 @@ async def transfer(update: Update, context: ContextTypes.DEFAULT_TYPE):
     update_balance(sender_id, -amount)
     update_balance(target_id, amount)
 
-    await update.message.reply_text(
-        f"Transfer successful\nTo: {target_id}\nAmount: {amount:,}"
-    )
-
-
-async def admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-
-    if not is_admin(user_id):
-        await update.message.reply_text("No permission")
-        return
-
-    await update.message.reply_text(
-        "/addmoney <user_id> <amount>\n"
-        "/removemoney <user_id> <amount>\n"
-        "/logs\n"
-        "/rank"
-    )
-
-
-async def addmoney(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-
-    if not is_admin(user_id):
-        await update.message.reply_text("No permission")
-        return
-
-    target_id = int(context.args[0])
-    amount = int(context.args[1])
+    await update.message.reply_text("Transfer completed")
 
     update_balance(target_id, amount)
 
@@ -463,12 +422,86 @@ def log_action(user_id, action, amount, balance_after):
     conn.commit()
     conn.close()
 
+async def transfer(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    sender_id = update.effective_user.id
+
+    target_id = int(context.args[0])
+    amount = int(context.args[1])
+
+    sender = get_user(sender_id)
+
+    if sender[1] < amount:
+        await update.message.reply_text("Insufficient balance")
+        return
+
+    update_balance(sender_id, -amount)
+    update_balance(target_id, amount)
+
+    await update.message.reply_text("Transfer completed")
+    
+    async def transfer(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    sender_id = update.effective_user.id
+
+    target_id = int(context.args[0])
+    amount = int(context.args[1])
+
+    sender = get_user(sender_id)
+
+    if sender[1] < amount:
+        await update.message.reply_text("Insufficient balance")
+        return
+
+    update_balance(sender_id, -amount)
+    update_balance(target_id, amount)
+
+    await update.message.reply_text("Transfer completed")
+    
+    async def admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_admin(update.effective_user.id):
+        await update.message.reply_text("No permission")
+        return
+
+    await update.message.reply_text(
+        "/addmoney\n/removemoney\n/logs\n/rank"
+    )
+
+
+async def addmoney(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_admin(update.effective_user.id):
+        return
+
+    target_id = int(context.args[0])
+    amount = int(context.args[1])
+
+    update_balance(target_id, amount)
+    await update.message.reply_text("Money added")
+
+
+async def removemoney(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_admin(update.effective_user.id):
+        return
+
+    target_id = int(context.args[0])
+    amount = int(context.args[1])
+
+    update_balance(target_id, -amount)
+    await update.message.reply_text("Money removed")
+    
+    def log_action(user_id, action, amount, balance_after):
+    conn = sqlite3.connect("casino.db")
+    cur = conn.cursor()
+
+    cur.execute("""
+    INSERT INTO logs (user_id, action, amount, balance_after, time)
+    VALUES (?, ?, ?, ?, ?)
+    """, (user_id, action, amount, balance_after, datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
+
+    conn.commit()
+    conn.close()
+
 
 async def logs(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-
-    if not is_admin(user_id):
-        await update.message.reply_text("No permission")
+    if not is_admin(update.effective_user.id):
         return
 
     conn = sqlite3.connect("casino.db")
@@ -476,12 +509,10 @@ async def logs(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     cur.execute("SELECT * FROM logs ORDER BY id DESC LIMIT 10")
     rows = cur.fetchall()
-    conn.close()
 
-    text = "RECENT LOGS\n\n"
-
+    text = "LOGS\n\n"
     for r in rows:
-        text += f"{r[5]} UID:{r[1]} {r[2]} {r[3]} bal:{r[4]}\n"
+        text += f"{r[5]} {r[1]} {r[2]} {r[3]} {r[4]}\n"
 
     await update.message.reply_text(text)
 
@@ -490,28 +521,15 @@ async def rank(update: Update, context: ContextTypes.DEFAULT_TYPE):
     conn = sqlite3.connect("casino.db")
     cur = conn.cursor()
 
-    cur.execute(
-        "SELECT user_id, balance FROM users ORDER BY balance DESC LIMIT 10"
-    )
-
+    cur.execute("SELECT user_id, balance FROM users ORDER BY balance DESC LIMIT 10")
     rows = cur.fetchall()
-    conn.close()
 
-    text = "TOP RANKING\n\n"
-
-    for i, r in enumerate(rows, start=1):
-        text += f"{i}. {r[0]} — {r[1]:,}\n"
+    text = "RANKING\n\n"
+    for i, r in enumerate(rows, 1):
+        text += f"{i}. {r[0]} - {r[1]}\n"
 
     await update.message.reply_text(text)
-
-
-def register_handlers(app):
-    app.add_handler(CommandHandler("transfer", transfer))
-    app.add_handler(CommandHandler("admin", admin))
-    app.add_handler(CommandHandler("addmoney", addmoney))
-    app.add_handler(CommandHandler("removemoney", removemoney))
-    app.add_handler(CommandHandler("logs", logs))
-    app.add_handler(CommandHandler("rank", rank))
+    
 
 # ---------------- MAIN ----------------
 def main():
@@ -529,8 +547,16 @@ def main():
     app.add_handler(CommandHandler("baccarat", baccarat))
     app.add_handler(CommandHandler("slot", slot))
     app.run_polling()
+    def register_handlers(app):
+    app.add_handler(CommandHandler("transfer", transfer))
+    app.add_handler(CommandHandler("admin", admin))
+    app.add_handler(CommandHandler("addmoney", addmoney))
+    app.add_handler(CommandHandler("removemoney", removemoney))
+    app.add_handler(CommandHandler("logs", logs))
+    app.add_handler(CommandHandler("rank", rank))
+    init_db()
+    register_handlers(app)
+    app.run_polling()
     
-    
-
 if __name__ == "__main__":
     main()
