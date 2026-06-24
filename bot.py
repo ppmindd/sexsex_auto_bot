@@ -233,23 +233,20 @@ import random
 
 def baccarat_score():
     cards = [random.randint(1, 10) for _ in range(3)]
-    total = sum(cards)
-    score = total % 10
-    return score, cards
+    return sum(cards) % 10, cards
 
 
-def baccarat(update, context):
-    user = update.effective_user
-    user_id = user.id
+async def baccarat(update, context):
+    user_id = update.effective_user.id
 
     if len(context.args) < 2:
-        update.message.reply_text("Usage: /baccarat <bet> player|banker|tie")
+        await update.message.reply_text("Usage: /baccarat <bet> player|banker|tie")
         return
 
     try:
         bet = int(context.args[0])
     except:
-        update.message.reply_text("Bet must be a number")
+        await update.message.reply_text("Bet must be a number")
         return
 
     choice = context.args[1].lower()
@@ -257,11 +254,11 @@ def baccarat(update, context):
     balance = get_user(user_id)[2]
 
     if bet <= 0 or bet > balance:
-        update.message.reply_text("Invalid bet amount")
+        await update.message.reply_text("Invalid bet amount")
         return
 
     if choice not in ["player", "banker", "tie"]:
-        update.message.reply_text("Choose: player / banker / tie")
+        await update.message.reply_text("Choose: player / banker / tie")
         return
 
     player_score, player_cards = baccarat_score()
@@ -275,10 +272,7 @@ def baccarat(update, context):
         result = "tie"
 
     if choice == result:
-        if result == "tie":
-            change = bet * 8
-        else:
-            change = bet
+        change = bet * 8 if result == "tie" else bet
         msg = "YOU WIN"
     else:
         change = -bet
@@ -286,7 +280,7 @@ def baccarat(update, context):
 
     update_balance(user_id, change)
 
-    update.message.reply_text(
+    await update.message.reply_text(
         f"🃏 BACCARAT\n\n"
         f"You: {choice}\n\n"
         f"Player: {player_cards} → {player_score}\n"
