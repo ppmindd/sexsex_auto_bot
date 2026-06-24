@@ -369,7 +369,8 @@ async def slot(update, context):
     )
     async def transfer(update: Update, context: ContextTypes.DEFAULT_TYPE):
     sender_id = update.effective_user.id
-
+    return
+    
     target_id = int(context.args[0])
     amount = int(context.args[1])
 
