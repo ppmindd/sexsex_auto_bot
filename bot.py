@@ -298,7 +298,66 @@ async def baccarat(update, context):
     f"{msg}\n"
     f"Change: {change:+}"
 )
+import random
 
+symbols = ["🍒", "🍋", "🍇", "🔔", "💎", "7️⃣"]
+
+
+def slot_spin():
+    return [random.choice(symbols) for _ in range(3)]
+
+
+async def slot(update, context):
+    user_id = update.effective_user.id
+
+    if len(context.args) < 1:
+        await update.message.reply_text("Usage: /slot <bet>")
+        return
+
+    try:
+        bet = int(context.args[0])
+    except:
+        await update.message.reply_text("Bet must be a number")
+        return
+
+    user = get_user(user_id)
+    if not user:
+        await update.message.reply_text("User not registered. Use /start")
+        return
+
+    balance = user[2]
+
+    if bet <= 0 or bet > balance:
+        await update.message.reply_text("Invalid bet amount")
+        return
+
+    reels = slot_spin()
+
+    if reels[0] == reels[1] == reels[2]:
+        if reels[0] == "7️⃣":
+            multiplier = 10
+        elif reels[0] == "💎":
+            multiplier = 7
+        else:
+            multiplier = 5
+
+        change = bet * multiplier
+        result = "JACKPOT"
+    elif reels[0] == reels[1] or reels[1] == reels[2] or reels[0] == reels[2]:
+        change = bet * 2
+        result = "SMALL WIN"
+    else:
+        change = -bet
+        result = "LOSE"
+
+    update_balance(user_id, change)
+
+    await update.message.reply_text(
+        f"🎰 SLOT MACHINE\n\n"
+        f"| {' | '.join(reels)} |\n\n"
+        f"{result}\n"
+        f"Change: {change:+}"
+    )
 
 # ---------------- MAIN ----------------
 def main():
@@ -314,7 +373,7 @@ def main():
     app.add_handler(CommandHandler("coin", coin))
     app.add_handler(CommandHandler("send", send))
     app.add_handler(CommandHandler("baccarat", baccarat))
-
+    app.add_handler(CommandHandler("slot", slot))
     app.run_polling()
     
     
