@@ -386,9 +386,10 @@ async def slot(update, context):
     update_balance(sender_id, -amount)
     update_balance(target_id, amount)
 
-   await update.message.reply_text(
-    f"Transfer completed\nTo: {target_id}\nAmount: {amount:,}"
-)
+    await update.message.reply_text(
+        f"Transfer completed\nTo: {target_id}\nAmount: {amount:,}"
+    )
+
 
 def log_action(user_id, action, amount, balance_after):
     conn = sqlite3.connect("casino.db")
