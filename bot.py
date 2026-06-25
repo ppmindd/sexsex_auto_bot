@@ -1,29 +1,40 @@
 import os
-import sqlite3
-import random
-import logging
 import asyncio
-from datetime import datetime, date
+import random
+import sqlite3
+from datetime import datetime
 
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandler, ContextTypes
+from telegram import (
+    Update,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+)
+from telegram.ext import (
+    Application,
+    CommandHandler,
+    CallbackQueryHandler,
+    ContextTypes,
+)
 
-# ======================
+# ===================== 설정 =====================
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 ADMIN_IDS = {7381851504}
 
-logging.basicConfig(level=logging.INFO)
+INITIAL_BALANCE = 1_000_000
+CHECKIN_MIN = 1_000_000
+CHECKIN_MAX = 3_000_000
+RELIEF_AMOUNT = 500_000
 
-# ======================
-# DB
-# ======================
-conn = sqlite3.connect("casino.db", check_same_thread=False)
+DB_PATH = "casino.db"
+
+# ===================== DB =====================
+conn = sqlite3.connect(DB_PATH, check_same_thread=False)
 cur = conn.cursor()
 
 cur.execute("""
 CREATE TABLE IF NOT EXISTS users (
     user_id INTEGER PRIMARY KEY,
-    balance INTEGER DEFAULT 1000,
+    balance INTEGER DEFAULT 0,
     last_checkin TEXT
 )
 """)
@@ -35,325 +46,304 @@ CREATE TABLE IF NOT EXISTS logs (
     action TEXT,
     amount INTEGER,
     balance INTEGER,
-    timestamp TEXT
+    time TEXT
 )
 """)
 
 conn.commit()
 
-# ======================
-# DB CORE
-# ======================
-def get_user(uid):
-    cur.execute("SELECT * FROM users WHERE user_id=?", (uid,))
-    u = cur.fetchone()
 
-    if not u:
-        cur.execute(
-            "INSERT INTO users (user_id, balance) VALUES (?, ?)",
-            (uid, 1000000)
-        )
-        conn.commit()
-        return (uid, 1000000, None)
-
-    return u
+def now():
+    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
 
-def log(uid, action, amount, balance):
+def get_user(user_id):
+    cur.execute("SELECT user_id, balance, last_checkin FROM users WHERE user_id=?", (user_id,))
+    return cur.fetchone()
+
+
+def create_user(user_id):
     cur.execute(
-        "INSERT INTO logs VALUES (NULL,?,?,?,?,?)",
-        (uid, action, amount, balance, datetime.now().isoformat())
+        "INSERT OR IGNORE INTO users (user_id, balance) VALUES (?, ?)",
+        (user_id, INITIAL_BALANCE),
     )
     conn.commit()
 
 
-def update_balance(uid, amount):
-    u = get_user(uid)
-    new = u[1] + amount
+def update_balance(user_id, amount, action=""):
+    create_user(user_id)
+    cur.execute("SELECT balance FROM users WHERE user_id=?", (user_id,))
+    bal = cur.fetchone()[0]
+    new_bal = bal + amount
 
-    if new < 0:
-        new = 0
-
-    cur.execute("UPDATE users SET balance=? WHERE user_id=?", (new, uid))
+    cur.execute("UPDATE users SET balance=? WHERE user_id=?", (new_bal, user_id))
     conn.commit()
 
-    log(uid, "BAL", amount, new)
-    return new
+    cur.execute(
+        "INSERT INTO logs (user_id, action, amount, balance, time) VALUES (?, ?, ?, ?, ?)",
+        (user_id, action, amount, new_bal, now()),
+    )
+    conn.commit()
+
+    return new_bal
 
 
-def is_admin(uid):
-    return uid in ADMIN_IDS
+def set_checkin(user_id):
+    cur.execute(
+        "UPDATE users SET last_checkin=? WHERE user_id=?",
+        (now(), user_id),
+    )
+    conn.commit()
 
 
-# ======================
-# UI
-# ======================
-def menu():
+# ===================== UI =====================
+def main_menu():
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("🎮 Games", callback_data="games")],
-        [InlineKeyboardButton("💰 Balance", callback_data="balance")],
-        [InlineKeyboardButton("🎁 Checkin", callback_data="checkin")],
-        [InlineKeyboardButton("🆘 Relief", callback_data="relief")],
+        [InlineKeyboardButton("🎮 게임", callback_data="menu_games")],
+        [InlineKeyboardButton("💰 잔액", callback_data="menu_balance")],
+        [InlineKeyboardButton("🎁 출석체크", callback_data="menu_checkin")],
+        [InlineKeyboardButton("🆘 구제", callback_data="menu_relief")],
     ])
 
 
-def games_menu():
+def game_menu():
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("🎲 Dice", callback_data="dice")],
-        [InlineKeyboardButton("🪙 Coin", callback_data="coin")],
-        [InlineKeyboardButton("🎰 Slots", callback_data="slots")],
-        [InlineKeyboardButton("🃏 Baccarat", callback_data="baccarat")],
-        [InlineKeyboardButton("⬅️ Back", callback_data="home")],
+        [InlineKeyboardButton("🎲 주사위", callback_data="game_dice")],
+        [InlineKeyboardButton("🪙 동전", callback_data="game_coin")],
+        [InlineKeyboardButton("🎰 슬롯", callback_data="game_slots")],
+        [InlineKeyboardButton("🃏 바카라", callback_data="game_baccarat")],
+        [InlineKeyboardButton("⬅ 뒤로", callback_data="menu_back")],
     ])
 
 
-# ======================
-# START / BALANCE
-# ======================
-async def start(update, context):
-    get_user(update.effective_user.id)
-    await update.message.reply_text("🎰 Casino Pro Ready", reply_markup=menu())
+# ===================== 기본 명령 =====================
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    create_user(user_id)
+
+    await update.message.reply_text(
+        "🎰 카지노 봇에 오신 것을 환영합니다!",
+        reply_markup=main_menu()
+    )
 
 
-async def balance(update, context):
-    u = get_user(update.effective_user.id)
-    await update.message.reply_text(f"💰 {u[1]}")
+async def balance(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    create_user(user_id)
+
+    cur.execute("SELECT balance FROM users WHERE user_id=?", (user_id,))
+    bal = cur.fetchone()[0]
+
+    await update.message.reply_text(f"💰 현재 잔액: {bal:,} 코인")
 
 
-# ======================
-# CHECKIN / RELIEF
-# ======================
-async def checkin(update, context):
-    uid = update.effective_user.id
-    u = get_user(uid)
-
-    today = date.today().isoformat()
-
-    if u[2] == today:
-        return await update.message.reply_text("Already claimed")
-
-    reward = random.randint(1000000, 3000000)
-    new = update_balance(uid, reward)
-
-    cur.execute("UPDATE users SET last_checkin=? WHERE user_id=?", (today, uid))
-    conn.commit()
-
-    await update.message.reply_text(f"🎁 +{reward}\n💰 {new}")
-
-
-async def relief(update, context):
-    uid = update.effective_user.id
-    u = get_user(uid)
-
-    if u[1] > 0:
-        return await update.message.reply_text("Only for zero balance")
-
-    new = update_balance(uid, 500000)
-    await update.message.reply_text(f"🆘 +500000\n💰 {new}")
-
-
-# ======================
-# TRANSFER
-# ======================
-async def transfer(update, context):
+async def transfer(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
-        uid = update.effective_user.id
         target = int(context.args[0])
-        amt = int(context.args[1])
+        amount = int(context.args[1])
+        user_id = update.effective_user.id
 
-        if amt <= 0:
-            return await update.message.reply_text("Invalid")
+        if amount <= 0:
+            return await update.message.reply_text("❌ 금액 오류")
 
-        if get_user(uid)[1] < amt:
-            return await update.message.reply_text("No balance")
+        cur.execute("SELECT balance FROM users WHERE user_id=?", (user_id,))
+        bal = cur.fetchone()[0]
 
-        update_balance(uid, -amt)
-        update_balance(target, amt)
+        if bal < amount:
+            return await update.message.reply_text("❌ 잔액 부족")
 
-        await update.message.reply_text("Transferred")
+        update_balance(user_id, -amount, "transfer_out")
+        update_balance(target, amount, "transfer_in")
+
+        await update.message.reply_text("✅ 송금 완료")
 
     except:
-        await update.message.reply_text("/transfer <id> <amount>")
+        await update.message.reply_text("사용법: /transfer <유저ID> <금액>")
 
 
-# ======================
-# ADMIN
-# ======================
-async def admin(update, context):
-    if not is_admin(update.effective_user.id):
-        return await update.message.reply_text("No permission")
+async def checkin(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    create_user(user_id)
 
-    await update.message.reply_text("🛠 Admin Ready")
+    cur.execute("SELECT last_checkin FROM users WHERE user_id=?", (user_id,))
+    last = cur.fetchone()[0]
 
+    if last and last[:10] == now()[:10]:
+        return await update.message.reply_text("❌ 오늘은 이미 출석했습니다")
 
-async def addmoney(update, context):
-    if not is_admin(update.effective_user.id):
-        return
+    reward = random.randint(CHECKIN_MIN, CHECKIN_MAX)
+    update_balance(user_id, reward, "checkin")
+    set_checkin(user_id)
 
-    uid = int(context.args[0])
-    amt = int(context.args[1])
-
-    new = update_balance(uid, amt)
-    await update.message.reply_text(f"➕ +{amt}\n💰 {new}")
+    await update.message.reply_text(f"🎁 출석 보상: +{reward:,}")
 
 
-async def removemoney(update, context):
-    if not is_admin(update.effective_user.id):
-        return
+async def relief(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    create_user(user_id)
 
-    uid = int(context.args[0])
-    amt = int(context.args[1])
+    cur.execute("SELECT balance FROM users WHERE user_id=?", (user_id,))
+    bal = cur.fetchone()[0]
 
-    new = update_balance(uid, -amt)
-    await update.message.reply_text(f"➖ -{amt}\n💰 {new}")
+    if bal != 0:
+        return await update.message.reply_text("❌ 잔액이 0일 때만 가능합니다")
 
+    update_balance(user_id, RELIEF_AMOUNT, "relief")
 
-# ======================
-# GAMES
-# ======================
-def check(uid, bet):
-    return get_user(uid)[1] >= bet
+    await update.message.reply_text(f"🆘 구제 지급: +{RELIEF_AMOUNT:,}")
 
 
-async def dice_game(update, uid, bet):
-    msg = await update.message.reply_dice()
-    v = msg.dice.value
+# ===================== 게임 =====================
+async def dice_game(update, user_id):
+    msg = await update.message.reply_text("🎲 굴리는 중...")
+    res = await update.effective_chat.send_dice("🎲")
+    await asyncio.sleep(2)
 
-    if v >= 4:
-        new = update_balance(uid, bet * 2)
-        await update.message.reply_text(f"🎲 WIN +{bet*2}\n💰 {new}")
-    else:
-        new = update_balance(uid, -bet)
-        await update.message.reply_text(f"🎲 LOSE -{bet}\n💰 {new}")
+    await msg.edit_text(f"결과: {res.dice.value}")
 
 
-async def coin_game(update, uid, bet):
-    msg = await update.message.reply_dice("🪙")
+async def coin_game(update, user_id):
+    msg = await update.message.reply_text("🪙 던지는 중...")
+    res = await update.effective_chat.send_dice("🎲")
+    await asyncio.sleep(2)
 
-    if msg.dice.value % 2 == 0:
-        new = update_balance(uid, bet * 2)
-        await update.message.reply_text(f"🪙 WIN +{bet*2}")
-    else:
-        new = update_balance(uid, -bet)
-        await update.message.reply_text(f"🪙 LOSE -{bet}")
+    result = "앞면" if res.dice.value % 2 == 0 else "뒷면"
+    await msg.edit_text(f"결과: {result}")
 
 
-async def slots_game(update, uid, bet):
-    msg = await update.message.reply_dice("🎰")
+async def slots_game(update, user_id):
+    msg = await update.message.reply_text("🎰 스핀 중...")
+    res = await update.effective_chat.send_dice("🎰")
+    await asyncio.sleep(3)
 
-    if msg.dice.value in [1, 22, 43]:
-        new = update_balance(uid, bet * 5)
-        await update.message.reply_text(f"🎰 JACKPOT +{bet*5}")
-    else:
-        new = update_balance(uid, -bet)
-        await update.message.reply_text(f"🎰 LOSE -{bet}")
+    await msg.edit_text(f"슬롯 결과: {res.dice.value}")
 
 
-# ======================
-# 🃏 BACCARAT (ANIMATION VERSION)
-# ======================
-async def baccarat_game(update, uid, bet):
-    msg = await update.message.reply_text("🃏 Dealing cards...")
+async def baccarat_game(update, user_id):
+    msg = await update.message.reply_text("🃏 카드 배분 중...")
+
+    player = random.randint(1, 10)
+    banker = random.randint(1, 10)
 
     await asyncio.sleep(1)
-    await msg.edit_text("🃏 Player: ♦️🂠 | Banker: ♠️🂠")
+    await msg.edit_text(f"플레이어: {player}")
+    await asyncio.sleep(1)
+    await msg.edit_text(f"뱅커: {banker}")
+
+    if player > banker:
+        result = "플레이어 승"
+    elif banker > player:
+        result = "뱅커 승"
+    else:
+        result = "무승부"
 
     await asyncio.sleep(1)
-
-    p = random.randint(1, 9)
-    b = random.randint(1, 9)
-
-    text = f"🃏 Player: {p} | Banker: {b}\n"
-
-    if p > b:
-        new = update_balance(uid, bet)
-        text += f"🎉 Player Win +{bet}"
-    elif b > p:
-        new = update_balance(uid, -bet)
-        text += f"💥 Banker Win -{bet}"
-    else:
-        new = get_user(uid)[1]
-        text += "🤝 Tie"
-
-    text += f"\n💰 {new}"
-
-    await msg.edit_text(text)
+    await msg.edit_text(f"결과: {result}")
 
 
-# ======================
-# CALLBACK
-# ======================
-async def button(update, context):
-    q = update.callback_query
-    await q.answer()
+# ===================== 콜백 =====================
+async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
 
-    uid = q.from_user.id
-    d = q.data
+    user_id = query.from_user.id
+    create_user(user_id)
 
-    if d == "home":
-        await q.edit_message_text("Menu", reply_markup=menu())
+    data = query.data
 
-    elif d == "games":
-        await q.edit_message_text("Games", reply_markup=games_menu())
+    if data == "menu_games":
+        await query.message.edit_text("🎮 게임 선택", reply_markup=game_menu())
 
-    elif d == "balance":
-        u = get_user(uid)
-        await q.edit_message_text(f"💰 {u[1]}")
+    elif data == "menu_balance":
+        cur.execute("SELECT balance FROM users WHERE user_id=?", (user_id,))
+        bal = cur.fetchone()[0]
+        await query.message.edit_text(f"💰 잔액: {bal:,}", reply_markup=main_menu())
 
-    elif d == "checkin":
+    elif data == "menu_checkin":
         await checkin(update, context)
 
-    elif d == "relief":
+    elif data == "menu_relief":
         await relief(update, context)
 
-    elif d in ["dice", "coin", "slots", "baccarat"]:
-        await q.edit_message_text("Use /command bet")
+    elif data == "menu_back":
+        await query.message.edit_text("🏠 메인 메뉴", reply_markup=main_menu())
+
+    elif data == "game_dice":
+        await dice_game(update, user_id)
+
+    elif data == "game_coin":
+        await coin_game(update, user_id)
+
+    elif data == "game_slots":
+        await slots_game(update, user_id)
+
+    elif data == "game_baccarat":
+        await baccarat_game(update, user_id)
 
 
-# ======================
-# WRAPPERS
-# ======================
-async def dice(update, context):
-    await dice_game(update, update.effective_user.id, int(context.args[0]))
+# ===================== 관리자 =====================
+async def addmoney(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id not in ADMIN_IDS:
+        return
+
+    uid = int(context.args[0])
+    amount = int(context.args[1])
+
+    update_balance(uid, amount, "admin_add")
+    await update.message.reply_text("관리자 지급 완료")
 
 
-async def coin(update, context):
-    await coin_game(update, update.effective_user.id, int(context.args[0]))
+async def removemoney(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id not in ADMIN_IDS:
+        return
+
+    uid = int(context.args[0])
+    amount = -abs(int(context.args[1]))
+
+    update_balance(uid, amount, "admin_remove")
+    await update.message.reply_text("관리자 차감 완료")
 
 
-async def slots(update, context):
-    await slots_game(update, update.effective_user.id, int(context.args[0]))
+async def logs(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id not in ADMIN_IDS:
+        return
+
+    cur.execute("SELECT * FROM logs ORDER BY id DESC LIMIT 10")
+    rows = cur.fetchall()
+
+    text = "\n".join([str(r) for r in rows])
+    await update.message.reply_text(text)
 
 
-async def baccarat(update, context):
-    await baccarat_game(update, update.effective_user.id, int(context.args[0]))
+async def rank(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    cur.execute("SELECT user_id, balance FROM users ORDER BY balance DESC LIMIT 10")
+    rows = cur.fetchall()
+
+    text = "🏆 랭킹\n\n"
+    for i, r in enumerate(rows, 1):
+        text += f"{i}. {r[0]} - {r[1]:,}\n"
+
+    await update.message.reply_text(text)
 
 
-# ======================
-# MAIN
-# ======================
+# ===================== 실행 =====================
 def main():
-    app = ApplicationBuilder().token(BOT_TOKEN).build()
+    app = Application.builder().token(BOT_TOKEN).build()
 
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("balance", balance))
-
+    app.add_handler(CommandHandler("transfer", transfer))
     app.add_handler(CommandHandler("checkin", checkin))
     app.add_handler(CommandHandler("relief", relief))
-    app.add_handler(CommandHandler("transfer", transfer))
 
-    app.add_handler(CommandHandler("admin", admin))
     app.add_handler(CommandHandler("addmoney", addmoney))
     app.add_handler(CommandHandler("removemoney", removemoney))
-
-    app.add_handler(CommandHandler("dice", dice))
-    app.add_handler(CommandHandler("coin", coin))
-    app.add_handler(CommandHandler("slots", slots))
-    app.add_handler(CommandHandler("baccarat", baccarat))
+    app.add_handler(CommandHandler("logs", logs))
+    app.add_handler(CommandHandler("rank", rank))
 
     app.add_handler(CallbackQueryHandler(button))
 
-    print("🔥 Casino Pro Running...")
+    print("봇 실행 중...")
     app.run_polling()
 
 
