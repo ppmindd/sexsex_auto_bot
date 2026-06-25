@@ -75,38 +75,37 @@ def update_balance(uid, amount, action=""):
 # ================= UI =================
 def main_menu():
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("🎮 게임", callback_data="games")],
-        [InlineKeyboardButton("💰 잔액", callback_data="balance")],
-        [InlineKeyboardButton("🎁 출석", callback_data="checkin")],
-        [InlineKeyboardButton("🆘 구제", callback_data="relief")],
+        [InlineKeyboardButton("🎮 게임", callback_data="게임")],
+        [InlineKeyboardButton("💰 잔액", callback_data="잔액")],
+        [InlineKeyboardButton("🎁 출석", callback_data="출석")],
+        [InlineKeyboardButton("🆘 구제", callback_data="구제")],
     ])
 
 
 def game_menu():
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("🎲 주사위", callback_data="dice")],
-        [InlineKeyboardButton("🪙 동전", callback_data="coin")],
-        [InlineKeyboardButton("🎰 슬롯", callback_data="slots")],
-        [InlineKeyboardButton("🃏 바카라", callback_data="baccarat")],
-        [InlineKeyboardButton("⬅ 뒤로", callback_data="back")],
+        [InlineKeyboardButton("🎲 주사위", callback_data="주사위")],
+        [InlineKeyboardButton("🪙 동전", callback_data="동전")],
+        [InlineKeyboardButton("🎰 슬롯", callback_data="슬롯")],
+        [InlineKeyboardButton("🃏 바카라", callback_data="바카라")],
+        [InlineKeyboardButton("⬅ 뒤로", callback_data="뒤로")],
     ])
 
 
 # ================= START =================
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def 시작(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.effective_user.id
     create_user(uid)
-
     await update.message.reply_text("🎰 카지노 봇 시작!", reply_markup=main_menu())
 
 
-async def balance_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def 잔액(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.effective_user.id
     bal = get_balance(uid)
     await update.message.reply_text(f"💰 잔액: {bal:,}")
 
 
-async def transfer(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def 송금(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         uid = update.effective_user.id
         target = int(context.args[0])
@@ -118,25 +117,25 @@ async def transfer(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if get_balance(uid) < amount:
             return await update.message.reply_text("❌ 잔액 부족")
 
-        update_balance(uid, -amount, "transfer_out")
-        update_balance(target, amount, "transfer_in")
+        update_balance(uid, -amount, "송금_출금")
+        update_balance(target, amount, "송금_입금")
 
         await update.message.reply_text("✅ 송금 완료")
 
     except:
-        await update.message.reply_text("사용법: /transfer <유저ID> <금액>")
+        await update.message.reply_text("사용법: /송금 <유저ID> <금액>")
 
 
-# ================= CHECKIN =================
-async def checkin_logic(uid, message):
+# ================= 출석 =================
+async def 출석로직(uid, message):
     cur.execute("SELECT last_checkin FROM users WHERE user_id=?", (uid,))
     row = cur.fetchone()
 
     if row and row[0] and row[0][:10] == now()[:10]:
-        return await message.reply_text("❌ 이미 출석했습니다")
+        return await message.reply_text("❌ 오늘 이미 출석했습니다")
 
     reward = random.randint(CHECKIN_MIN, CHECKIN_MAX)
-    update_balance(uid, reward, "checkin")
+    update_balance(uid, reward, "출석")
 
     cur.execute("UPDATE users SET last_checkin=? WHERE user_id=?", (now(), uid))
     conn.commit()
@@ -144,32 +143,32 @@ async def checkin_logic(uid, message):
     await message.reply_text(f"🎁 출석 보상: +{reward:,}")
 
 
-async def checkin(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await checkin_logic(update.effective_user.id, update.message)
+async def 출석(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await 출석로직(update.effective_user.id, update.message)
 
 
-# ================= RELIEF =================
-async def relief_logic(uid, message):
+# ================= 구제 =================
+async def 구제로직(uid, message):
     if get_balance(uid) != 0:
-        return await message.reply_text("❌ 잔액이 0일 때만 가능")
+        return await message.reply_text("❌ 잔액 0일 때만 가능")
 
-    update_balance(uid, RELIEF_AMOUNT, "relief")
+    update_balance(uid, RELIEF_AMOUNT, "구제")
     await message.reply_text(f"🆘 구제 지급: +{RELIEF_AMOUNT:,}")
 
 
-async def relief(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await relief_logic(update.effective_user.id, update.message)
+async def 구제(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await 구제로직(update.effective_user.id, update.message)
 
 
-# ================= GAMES =================
-async def dice_game(chat, msg):
+# ================= 게임 =================
+async def dice(chat):
     m = await chat.send_message("🎲 굴리는 중...")
     d = await chat.send_dice("🎲")
     await asyncio.sleep(2)
     await m.edit_text(f"🎲 결과: {d.dice.value}")
 
 
-async def coin_game(chat, msg):
+async def coin(chat):
     m = await chat.send_message("🪙 던지는 중...")
     d = await chat.send_dice("🎲")
     await asyncio.sleep(2)
@@ -177,14 +176,14 @@ async def coin_game(chat, msg):
     await m.edit_text(f"🪙 결과: {res}")
 
 
-async def slots_game(chat, msg):
+async def slots(chat):
     m = await chat.send_message("🎰 스핀...")
     d = await chat.send_dice("🎰")
     await asyncio.sleep(3)
     await m.edit_text(f"🎰 결과: {d.dice.value}")
 
 
-async def baccarat_game(chat, msg):
+async def baccarat(chat):
     m = await chat.send_message("🃏 카드 배분...")
     p = random.randint(1, 10)
     b = random.randint(1, 10)
@@ -205,8 +204,8 @@ async def baccarat_game(chat, msg):
     await m.edit_text(f"결과: {r}")
 
 
-# ================= CALLBACK (UI FIX 핵심) =================
-async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
+# ================= CALLBACK =================
+async def 버튼(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
     await q.answer()
 
@@ -215,70 +214,68 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     data = q.data
 
-    if data == "games":
+    if data == "게임":
         await q.message.edit_text("🎮 게임 선택", reply_markup=game_menu())
 
-    elif data == "balance":
-        bal = get_balance(uid)
-        await q.message.edit_text(f"💰 잔액: {bal:,}", reply_markup=main_menu())
+    elif data == "잔액":
+        await q.message.edit_text(f"💰 잔액: {get_balance(uid):,}", reply_markup=main_menu())
 
-    elif data == "checkin":
-        await checkin_logic(uid, q.message)
+    elif data == "출석":
+        await 출석로직(uid, q.message)
 
-    elif data == "relief":
-        await relief_logic(uid, q.message)
+    elif data == "구제":
+        await 구제로직(uid, q.message)
 
-    elif data == "back":
-        await q.message.edit_text("🏠 메인 메뉴", reply_markup=main_menu())
+    elif data == "뒤로":
+        await q.message.edit_text("🏠 메인", reply_markup=main_menu())
 
-    elif data == "dice":
-        await dice_game(q.message.chat, q.message)
+    elif data == "주사위":
+        await dice(q.message.chat)
 
-    elif data == "coin":
-        await coin_game(q.message.chat, q.message)
+    elif data == "동전":
+        await coin(q.message.chat)
 
-    elif data == "slots":
-        await slots_game(q.message.chat, q.message)
+    elif data == "슬롯":
+        await slots(q.message.chat)
 
-    elif data == "baccarat":
-        await baccarat_game(q.message.chat, q.message)
+    elif data == "바카라":
+        await baccarat(q.message.chat)
 
 
-# ================= ADMIN =================
-async def addmoney(update: Update, context: ContextTypes.DEFAULT_TYPE):
+# ================= 관리자 =================
+async def 지급(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id not in ADMIN_IDS:
         return
 
     uid = int(context.args[0])
     amount = int(context.args[1])
 
-    update_balance(uid, amount, "admin_add")
+    update_balance(uid, amount, "관리자_지급")
     await update.message.reply_text("관리자 지급 완료")
 
 
-async def removemoney(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def 차감(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id not in ADMIN_IDS:
         return
 
     uid = int(context.args[0])
     amount = -abs(int(context.args[1]))
 
-    update_balance(uid, amount, "admin_remove")
+    update_balance(uid, amount, "관리자_차감")
     await update.message.reply_text("관리자 차감 완료")
 
 
-async def logs(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def 로그(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id not in ADMIN_IDS:
         return
 
     cur.execute("SELECT * FROM logs ORDER BY id DESC LIMIT 10")
     rows = cur.fetchall()
 
-    text = "\n".join(map(str, rows))
-    await update.message.reply_text(text)
+    await update.message.reply_text("\n".join(map(str, rows)))
 
 
-async def rank(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def 랭킹(update: Update, context: ContextTypes.DEFAULT_TYPE):
     cur.execute("SELECT user_id, balance FROM users ORDER BY balance DESC LIMIT 10")
     rows = cur.fetchall()
 
@@ -293,20 +290,23 @@ async def rank(update: Update, context: ContextTypes.DEFAULT_TYPE):
 def main():
     app = Application.builder().token(BOT_TOKEN).build()
 
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("balance", balance_cmd))
-    app.add_handler(CommandHandler("transfer", transfer))
-    app.add_handler(CommandHandler("checkin", checkin))
-    app.add_handler(CommandHandler("relief", relief))
+    # 유저
+    app.add_handler(CommandHandler("시작", 시작))
+    app.add_handler(CommandHandler("잔액", 잔액))
+    app.add_handler(CommandHandler("송금", 송금))
+    app.add_handler(CommandHandler("출석", 출석))
+    app.add_handler(CommandHandler("구제", 구제))
 
-    app.add_handler(CommandHandler("addmoney", addmoney))
-    app.add_handler(CommandHandler("removemoney", removemoney))
-    app.add_handler(CommandHandler("logs", logs))
-    app.add_handler(CommandHandler("rank", rank))
+    # 관리자
+    app.add_handler(CommandHandler("지급", 지급))
+    app.add_handler(CommandHandler("차감", 차감))
+    app.add_handler(CommandHandler("로그", 로그))
+    app.add_handler(CommandHandler("랭킹", 랭킹))
 
-    app.add_handler(CallbackQueryHandler(button))
+    # UI
+    app.add_handler(CallbackQueryHandler(버튼))
 
-    print("RUNNING...")
+    print("카지노 봇 실행")
     app.run_polling()
 
 
